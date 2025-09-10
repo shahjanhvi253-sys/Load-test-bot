@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: telegram-load-test-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: BOT_TOKEN
+        value: 7477086445:AAHpsBLrjc5v7qsJKR_TVdcWPgXwQcCwNTc
+      - key: ADMIN_USER_ID
+        value: 6731610123
