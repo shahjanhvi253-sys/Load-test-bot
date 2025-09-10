@@ -507,4 +507,123 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # Start the test with GET method
                     await start_load_test(update, context)
             else:
-                await update.message.reply_text("❌ Pl
+                await update.message.reply_text("❌ Please select either GET or POST:")
+        
+        elif state == 'awaiting_post_data':
+            if text.upper() == 'SKIP':
+                context.user_data['post_data'] = None
+            else:
+                try:
+                    post_data = {}
+                    for pair in text.split('&'):
+                        if '=' in pair:
+                            key, value = pair.split('=', 1)
+                            post_data[key] = value
+                    context.user_data['post_data'] = post_data
+                except:
+                    await update.message.reply_text("❌ Invalid format. Please use key=value&key2=value2 format:")
+                    return
+            
+            # Start the test
+            await start_load_test(update, context)
+        
+        elif state == 'awaiting_user_add':
+            try:
+                new_user_id = int(text)
+                username = f"user_{new_user_id}"
+                add_user(new_user_id, username)
+                del user_states[user_id]
+                await update.message.reply_text(f"✅ User {new_user_id} added successfully!")
+            except ValueError:
+                await update.message.reply_text("❌ Please enter a valid user ID:")
+        
+        elif state == 'awaiting_user_remove':
+            try:
+                remove_user_id = int(text)
+                remove_user(remove_user_id)
+                del user_states[user_id]
+                await update.message.reply_text(f"✅ User {remove_user_id} removed successfully!")
+            except ValueError:
+                await update.message.reply_text("❌ Please enter a valid user ID:")
+    
+    else:
+        await update.message.reply_text("Please select an option from the menu.")
+
+async def start_load_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    config = context.user_data
+    
+    # Send initial message with live stats
+    status_message = await update.message.reply_text("🚀 Starting load test...\n\n⏳ Please wait, this may take several minutes.")
+    
+    # Run the load test in a separate thread
+    def run_test():
+        try:
+            results, test_duration = run_load_test(
+                config['target_url'],
+                config['total_requests'],
+                config['concurrency'],
+                config['timeout'],
+                config.get('method', 'GET'),
+                config.get('post_data'),
+                config['delay'],
+                user_id,
+                status_message.message_id,
+                context
+            )
+            
+            result_text = format_results(config['target_url'], results, test_duration)
+            
+            # Send final results
+            asyncio.run_coroutine_threadsafe(
+                context.bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=status_message.message_id,
+                    text=result_text,
+                    parse_mode='Markdown'
+                ),
+                asyncio.get_event_loop()
+            )
+            
+        except Exception as e:
+            error_text = f"❌ An error occurred during testing: {str(e)}"
+            asyncio.run_coroutine_threadsafe(
+                context.bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=status_message.message_id,
+                    text=error_text
+                ),
+                asyncio.get_event_loop()
+            )
+        
+        finally:
+            # Clean up user state
+            if user_id in user_states:
+                del user_states[user_id]
+            context.user_data.clear()
+    
+    # Start the test in a separate thread
+    thread = threading.Thread(target=run_test)
+    thread.start()
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(f"Update {update} caused error {context.error}")
+    if update and update.effective_message:
+        await update.effective_message.reply_text("❌ An error occurred. Please try again.")
+
+def main():
+    # Create application
+    application = Application.builder().token(BOT_TOKEN).build()
+    
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_error_handler(error_handler)
+    
+    # Start the bot
+    print("🤖 Ultimate Load Test Bot is running...")
+    print(f"👑 Admin User ID: {ADMIN_USER_ID}")
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
